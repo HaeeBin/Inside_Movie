@@ -1,6 +1,6 @@
 name: CI for DAGs
 
-# dags 폴더의 main 브랜치에 추가되었을 경우 실행 
+# 실행 조건 : dags 폴더의 main 브랜치에 추가되었을 경우 실행 
 on:
   pull_request:
     paths:
@@ -32,12 +32,15 @@ jobs:
         run: poetry install
 
       # 코드 검사 실시
-      - name: Run Flask8
-        run: poetry run flask8 --max-line-length=300 dags
+      # python 코드 스타일 위반 여부 확인(최대 줄 길이 300)
+      - name: Run flake8
+        run: poetry run flake8 --max-line-length=300 dags
 
+      # 코드 포맷이 정해진 기준과 일치하는지 확인 (--check는 실제 변경 없이 검사만)
       - name: Check formatting with Black
         run: poetry run black --check dags
 
+      # import 순서가 정해진 기준을 따르는지 확인
       - name: Check import order with isort
         run: poetry run isort dags --check-only
         
@@ -61,6 +64,17 @@ jobs:
           export_default_credentials: true
 
       - name: Upload DAGs to GCS
+        run: |
+          gsutil -m rsync -r ./dags gs://${{ secrets.GCS_BUCKET_NAME }}/dags
+      
+      - name: Notify Slack on Success
+        if: success()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data '{"text":"DAG 배포 성공: GCS에 정상적으로 업로드되었습니다!"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
+      
+      - name: Notify Slack on Failure
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
