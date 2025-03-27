@@ -1,0 +1,68 @@
+name: CI for DAGs
+
+# dags 폴더의 main 브랜치에 추가되었을 경우 실행 
+on:
+  pull_request:
+    paths:
+      - 'dags/**'
+    branches: [ "main" ]
+
+# code convention 체크(flake8, isort, black formatting)
+jobs:
+  lint-and-format:
+    runs-on: ubuntu-latest
+    steps:  
+      - name: Checkout code
+      - uses: actions/checkout@v4
+
+      # 파이썬 설치
+      - name: Set up Python
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      # poetry 가상환경 설치
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          
+      # 모듈 설치
+      - name: Install dependencies
+        run: poetry install
+
+      # 코드 검사 실시
+      - name: Run Flask8
+        run: poetry run flask8 --max-line-length=300 dags
+
+      - name: Check formatting with Black
+        run: poetry run black --check dags
+
+      - name: Check import order with isort
+        run: poetry run isort dags --check-only
+        
+  deploy:
+    needs: lint-and-format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+      - uses: actions/setup-python@v4
+        with:
+          python-verion: '3.11'
+
+      - name: Install gcloud CLI
+      - uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Upload DAGs to GCS
+        if: failure()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data '{"text":"DAG 배포 실패: GCS 업로드 중 오류 발생."}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}  
