@@ -29,7 +29,7 @@ jobs:
           
       # 모듈 설치
       - name: Install dependencies
-        run: poetry install
+        run: poetry install --no-root
 
       # 코드 검사 실시
       # python 코드 스타일 위반 여부 확인(최대 줄 길이 300)
