@@ -88,7 +88,6 @@ def get_cgv_review_url(movieNm, openDt):
     finally:
         driver.quit()
 
-
 def scraping_cgv_reviews(**kwargs):
     """
     영화 상세페이지에 들어가서 영화 리뷰 탭을 들어갑니다.
