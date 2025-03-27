@@ -81,6 +81,11 @@ def scraping_megabox_reviews(movie_info_set):
     options.add_argument("--disable-dev-shm-usage")
     
     for movieNm, openDt in movie_info_set:
+        
+        if movieNm in ('500일의 썸머', '검은 수녀들', '노스페라투', '대가족', '명탐정 코난: 14번째 표적', '무파사: 라이온 킹', '백수아파트',
+                       '서브스턴스', '소방관', '써니데이', '엘리: 몬스터 패밀리', '캡틴 아메리카: 브레이브 뉴 월드', '패딩턴: 페루에 가다!',
+                       '하얼빈', '해리포터와 죽음의 성물2', '히어'):
+            continue
         # 개봉년도
         open_year = openDt.split("-")[0]
         url = f'https://www.megabox.co.kr/movie?searchText={movieNm}'
@@ -88,6 +93,8 @@ def scraping_megabox_reviews(movie_info_set):
 
         driver.get(url)
         driver.implicitly_wait(10)
+        
+        megabox_reviews = []
         
         try:
             # 영화 버튼 찾기
@@ -101,8 +108,6 @@ def scraping_megabox_reviews(movie_info_set):
             driver.execute_script("arguments[0].scrollIntoView(true);", review_tab)
             review_tab.click()
             driver.implicitly_wait(10)
-            
-            megabox_reviews = []
 
             while True:
                 try:
