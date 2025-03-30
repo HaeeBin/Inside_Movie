@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import os   # airflow task에 넣을게 아니기 때문에 .env에 환경변수 설정
 from dotenv import load_dotenv
 import io, ast
+import time
 
 load_dotenv()
 
@@ -102,9 +103,46 @@ def parse_daily_region_boxoffice_data(all_data):
     
     if all_df:
         result = pd.concat(all_df, ignore_index=True)   # 지역별로 데이터 수집한거 하나의 dataframe으로 합치는 과정
-        return result.to_json()
+        return result
+    else:
+        return pd.DataFrame()
 
-def upload_to_gcs(data, target_date):
+def request_movie_info(movieCd):
+    '''
+    영화코드를 입력해서 영화 상세 정보를 가져오는 함수입니다.
+    '''
+    base_url = 'http://www.kobis.or.kr/kobisopenapi/webservice/rest/movie/searchMovieInfo.json'
+    
+    params = {
+        "key": BOXOFFICE_API_KEY, 
+        "movieCd": movieCd
+        }
+    
+    response = requests.get(base_url, params=params)
+    
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise Exception(f"상세 API 요청 실패: {response.status_code}")
+    
+def parse_movie_info_data(data):
+    '''
+    가져온 영화 상세 정보 데이터 중 필요한 정보들만 모아서 Dataframe으로 변환하는 함수입니다.
+    '''     
+    movie_info = data['movieInfoResult']['movieInfo']
+    
+    genres = movie_info.get("genres", [])
+    genre_names = ", ".join([g.get("genreNm", "") for g in genres])
+
+
+    return {
+        "movieCd": movie_info.get("movieCd"),
+        "prdtYear": movie_info.get("prdtYear"),
+        "showTm": movie_info.get("showTm"),
+        "genreNm": genre_names,
+    }
+
+def upload_to_gcs(region_box_office_data, target_date):
     '''
     DataFrame을 csv로 변환하여 Google Cloud Storage에 업로드하는 함수입니다.
     '''
@@ -117,19 +155,37 @@ def upload_to_gcs(data, target_date):
     gcs_file_path = f"{DAILY_REGION_BOXOFFICE_FOLDER}/daily_region_box_office_{target_date}.csv"
     blob = bucket.blob(gcs_file_path)
     
-    # 데이터 받아서 parse_dataframe(data)함수로 변환
-    if data:
-        df = pd.read_json(io.StringIO(data))
-        csv_data = df.to_csv(index=False, encoding="utf-8-sig")
-        blob.upload_from_string(csv_data, content_type="text/csv")
+    if region_box_office_data.empty:
+        print(f"{target_date} region_file is empty")
+        return
+
+    # 영화 상세 정보 더하기
+    enriched_data = []
+    for movieCd in region_box_office_data["movieCd"].unique():
+        try:
+            movie_info_json = request_movie_info(movieCd)
+            movie_indo_data = parse_movie_info_data(movie_info_json)
+            enriched_data.append(movie_indo_data)
+            time.sleep(0.2)
+        except Exception as e:
+            print(f"{movieCd} 상세정보 실패: {e}")
+            continue
+    
+    movie_info_df = pd.DataFrame(enriched_data)
+    
+    merged_df = pd.merge(region_box_office_data, movie_info_df, on="movieCd", how="left")
+    
+    # dataframe을 csv 변환 후 gcs 업로드
+    csv_data = merged_df.to_csv(index=False, encoding='utf-8-sig')
+    blob.upload_from_string(csv_data, content_type="text/csv")
         
-        print(f"{target_date} region file upload success")
+    print(f"{target_date} region file upload success")
 
 if __name__=='__main__':
     
     region_codes = load_region_codes_from_gcs()
     
-    for i in range(20250201, 20250229):
+    for i in range(20250226, 20250229):
         all_data = request_region_api(region_codes, i)
         data = parse_daily_region_boxoffice_data(all_data)
         upload_to_gcs(data, i)

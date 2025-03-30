@@ -6,7 +6,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 from datetime import datetime, timedelta
-import time
+import time, random
 from google.cloud import storage
 import os, io, logging, re
 from dotenv import load_dotenv
@@ -75,21 +75,23 @@ def convert_datetime(text):
 
 def scraping_megabox_reviews(movie_info_set):
     options = Options()
-    options.add_argument("--headless")
-    options.add_argument("window-size=1200x600")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
+    # options.add_argument("--headless")
+    # options.add_argument("window-size=1200x600")
+    # options.add_argument("--no-sandbox")
+    # options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
     
     for movieNm, openDt in movie_info_set:
         
         if movieNm in ('500일의 썸머', '검은 수녀들', '노스페라투', '대가족', '명탐정 코난: 14번째 표적', '무파사: 라이온 킹', '백수아파트',
                        '서브스턴스', '소방관', '써니데이', '엘리: 몬스터 패밀리', '캡틴 아메리카: 브레이브 뉴 월드', '패딩턴: 페루에 가다!',
-                       '하얼빈', '해리포터와 죽음의 성물2', '히어'):
+                       '하얼빈', '해리포터와 죽음의 성물2', '히어', '그 시절, 우리가 좋아했던 소녀', '보고타: 마지막 기회의 땅', '영화 러브 라이브! 니지가사키 학원 스쿨 아이돌 동호회 완결편 제1장',
+                       '위키드', '첫 번째 키스'):
             continue
         # 개봉년도
         open_year = openDt.split("-")[0]
         url = f'https://www.megabox.co.kr/movie?searchText={movieNm}'
-        driver = webdriver.Chrome()
+        driver = webdriver.Chrome(options=options)
 
         driver.get(url)
         driver.implicitly_wait(10)
@@ -166,6 +168,8 @@ def scraping_megabox_reviews(movie_info_set):
                         for btn in next_buttons:
                             if btn.get_attribute("pagenum") == str(current_page + 1):
                                 btn.click()
+                                # 페이지 넘기기 후
+                                time.sleep(random.uniform(2, 5))
                                 has_next = True
                                 break
                         
@@ -174,6 +178,7 @@ def scraping_megabox_reviews(movie_info_set):
                             try:
                                 next_10_button = driver.find_element(By.CSS_SELECTOR, "a.control.next")
                                 next_10_button.click()
+                                time.sleep(random.uniform(2, 5))
                             except:
                                 print("모든 페이지 끝")
                                 break
@@ -204,6 +209,17 @@ def upload_to_gcs(df, movieNm):
     # gcs 파일 경로 설정
     gcs_file_path = f"{MOVIE_REVIEW_FOLDER}/megabox_reviews/{movieNm}_megabox_reviews.csv"
     blob = bucket.blob(gcs_file_path)
+    
+    # 기존 데이터가 있는 경우 다운로드하여 병합
+    if blob.exists():
+        csv_data = blob.download_as_text(encoding='utf-8-sig')
+        existing_df = pd.read_csv(io.StringIO(csv_data))
+        combined_df = pd.concat([existing_df, df], ignore_index=True)
+        
+        #중복 제거
+        combined_df.drop_duplicates(subset=["id", "context", "review_date"], inplace=True)
+    else:
+        combined_df = df
     
     csv_data = df.to_csv(index=False, encoding='utf-8-sig')
     blob.upload_from_string(csv_data, content_type="text/csv")    
