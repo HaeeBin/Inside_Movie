@@ -193,7 +193,9 @@ def scraping_cgv_reviews(**kwargs):
                         stop_crawling = True
                         break
 
-                    cgv_reviews.append({"id": id, "context": context, "review_date": date})
+                    cgv_reviews.append(
+                        {"id": id, "context": context, "review_date": date}
+                    )
                 except Exception as e:
                     logging.info(f"리뷰 수집안됨. {e}")
                     continue
