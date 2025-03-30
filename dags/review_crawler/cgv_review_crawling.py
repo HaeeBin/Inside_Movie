@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 from airflow import DAG
-from airflow.models import Variable  # Airflow의 환경변수 불러오기 위함
+from airflow.models import Variable
 from airflow.operators.python import PythonOperator
 from dotenv import load_dotenv
 from google.cloud import storage
@@ -18,17 +18,16 @@ load_dotenv()
 
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 BUCKET_NAME = Variable.get("BUCKET_NAME")
-CGV_FOLDER = Variable.get("CGV_FOLDER")
+MOVIE_REVIEW_FOLDER = Variable.get("MOVIE_REVIEW_FOLDER")
 DAILY_BOXOFFICE_FOLDER = Variable.get("DAILY_BOXOFFICE_FOLDER")
 DAILY_REGION_BOXOFFICE_FOLDER = Variable.get("DAILY_REGION_BOXOFFICE_FOLDER")
-BOXOFFICE_API_KEY = Variable.get("BOXOFFICE_API_KEY")
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
 
 
 def get_date():
     """
-    API로 어제 날짜의 데이터까지만 수집 가능하므로 어제 날짜일자를 구하는 함수입니다.
+    어제 날짜일자를 구하는 함수입니다.
     """
     return (datetime.today() - timedelta(days=1)).strftime("%Y%m%d")
 
@@ -63,6 +62,35 @@ def get_unique_movie_list_from_gcs(**kwargs):
     kwargs["ti"].xcom_push(key="movie_list", value=movie_set)
 
 
+def get_latest_review_datetime(movieNm):
+    """
+    gcs에 이미 리뷰 수집된 csv 파일이 있다면 리뷰 작성 날짜를 추출해
+    제일 최신의 리뷰 날짜를 구하는 함수입니다.
+
+    수집한 리뷰를 또 수집하는 작업을 하지 않기 위해 수행하는 함수입니다.
+        - 리뷰가 최신 순으로 수집되기 때문에 날짜 비교해서 수집 작업을 빠르게 끝낼 수 있습니다.
+    """
+    client = storage.Client()
+    bucket = client.bucket(BUCKET_NAME)
+
+    gcs_file_path = f"{MOVIE_REVIEW_FOLDER}/cgv_reviews/{movieNm}_cgv_reviews.csv"
+    blob = bucket.blob(gcs_file_path)
+
+    # 리뷰 수집된 파일이 없으면 모든 리뷰 수집하기 위해 None return
+    if not blob.exists():
+        return None
+
+    csv_data = blob.download_as_text(encoding="utf-8-sig")
+    df = pd.read_csv(io.StringIO(csv_data))
+
+    if "review_date" not in df.columns or df.empty:
+        return None
+
+    # 가장 최근 값 구하기
+    df["review_date"] = pd.to_datetime(df["review_date"], errors="coerce")
+    return df["review_date"].max()
+
+
 def get_cgv_review_url(movieNm, openDt):
     """
     영화를 검색하여 영화 상세 페이지 url을 반환하는 함수입니다.
@@ -88,6 +116,7 @@ def get_cgv_review_url(movieNm, openDt):
     finally:
         driver.quit()
 
+
 def scraping_cgv_reviews(**kwargs):
     """
     영화 상세페이지에 들어가서 영화 리뷰 탭을 들어갑니다.
@@ -111,6 +140,7 @@ def scraping_cgv_reviews(**kwargs):
         if movie_url is None:
             continue
 
+        latest_datetime = get_latest_review_datetime(movieNm)
         driver.get(movie_url)
         cgv_reviews = []
 
@@ -136,6 +166,8 @@ def scraping_cgv_reviews(**kwargs):
             if not review_items:  # 리뷰가 없을 때
                 break
 
+            stop_crawling = False
+
             for i in range(len(review_items)):
                 try:
                     review_list = driver.find_element(
@@ -150,10 +182,26 @@ def scraping_cgv_reviews(**kwargs):
                     ).text.strip()
                     context = review.find_element(By.XPATH, ".//div[3]/p").text.strip()
 
-                    cgv_reviews.append({"id": id, "context": context, "date": date})
+                    review_dt = pd.to_datetime(date, errors="coerce")
+
+                    # 이미 수집한 가장 최신 리뷰 시간보다 같거나 이전이면 크롤링 중단. 유효한 날찌인지 확인
+                    if (
+                        latest_datetime
+                        and pd.notnull(review_dt)
+                        and review_dt <= latest_datetime
+                    ):
+                        stop_crawling = True
+                        break
+
+                    cgv_reviews.append(
+                        {"id": id, "context": context, "review_date": date}
+                    )
                 except Exception as e:
                     logging.info(f"리뷰 수집안됨. {e}")
                     continue
+
+            if stop_crawling:
+                break
 
             # 페이지 넘기기
             try:
@@ -195,11 +243,24 @@ def upload_to_gcs(df, movieNm):
     bucket = client.bucket(BUCKET_NAME)
 
     # gcs 파일 경로 설정
-    gcs_file_path = f"{CGV_FOLDER}/cgv_reviews/{movieNm}_cgv_reviews.csv"
+    gcs_file_path = f"{MOVIE_REVIEW_FOLDER}/cgv_reviews/{movieNm}_cgv_reviews.csv"
     blob = bucket.blob(gcs_file_path)
 
+    # 기존 데이터가 있는 경우 다운로드하여 병합
+    if blob.exists():
+        csv_data = blob.download_as_text(encoding="utf-8-sig")
+        existing_df = pd.read_csv(io.StringIO(csv_data))
+        combined_df = pd.concat([existing_df, df], ignore_index=True)
+
+        # 중복 제거
+        combined_df.drop_duplicates(
+            subset=["id", "context", "review_date"], inplace=True
+        )
+    else:
+        combined_df = df
+
     # dataframe을 csv 변환 후 gcs 업로드
-    csv_data = df.to_csv(index=False, encoding="utf-8-sig")
+    csv_data = combined_df.to_csv(index=False, encoding="utf-8-sig")
     blob.upload_from_string(csv_data, content_type="text/csv")
 
     logging.info(f"cgv reviews 업로드 완료. 날짜 : {movieNm}")
