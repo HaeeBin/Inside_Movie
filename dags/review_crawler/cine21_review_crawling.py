@@ -86,12 +86,12 @@ def get_latest_review_datetime(movieNm):
     csv_data = blob.download_as_text(encoding="utf-8-sig")
     df = pd.read_csv(io.StringIO(csv_data))
 
-    if "review_date" not in df.columns or df.empty:
+    if "date" not in df.columns or df.empty:
         return None
 
     # 가장 최근 값 구하기
-    df["review_date"] = pd.to_datetime(df["review_date"], errors="coerce")
-    return df["review_date"].max()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    return df["date"].max()
 
 
 def get_cine_review_url(movieNm):
@@ -162,9 +162,9 @@ def scraping_cine_review(**kwargs):
                     if review.select_one("div > div.star_area > span")
                     else None
                 )
-                name = review.select_one("div > div.comment_area > a > span")
+                name = review.select_one("div > div.comment_area > a > span").text
                 context = (
-                    review.select_one("div > div.comment_area > span")
+                    review.select_one("div > div.comment_area > span").text
                     if review.select_one("div > div.comment_area > span")
                     else None
                 )
@@ -175,8 +175,8 @@ def scraping_cine_review(**kwargs):
                             "who": "expert",
                             "name": name,
                             "context": context,
-                            "star": star,
-                            "review_date": None,
+                            "star": int(star),
+                            "date": None,
                         }
                     )
         except Exception as e:
@@ -262,8 +262,8 @@ def scraping_cine_review(**kwargs):
                                     "who": "netizen",
                                     "name": name,
                                     "context": context,
-                                    "star": star,
-                                    "review_date": date[0],
+                                    "star": int(star) / 2,
+                                    "date": date[0],
                                 }
                             )
                 except Exception as e:
@@ -303,7 +303,7 @@ def upload_to_gcs(df, movieNm):
 
         # 중복 제거
         combined_df.drop_duplicates(
-            subset=["id", "context", "review_date"], inplace=True
+            subset=["id", "context", "date"], inplace=True
         )
     else:
         combined_df = df

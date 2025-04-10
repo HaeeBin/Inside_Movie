@@ -83,12 +83,12 @@ def get_latest_review_datetime(movieNm):
     csv_data = blob.download_as_text(encoding="utf-8-sig")
     df = pd.read_csv(io.StringIO(csv_data))
 
-    if "review_date" not in df.columns or df.empty:
+    if "date" not in df.columns or df.empty:
         return None
 
     # 가장 최근 값 구하기
-    df["review_date"] = pd.to_datetime(df["review_date"], errors="coerce")
-    return df["review_date"].max()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    return df["date"].max()
 
 
 def get_cgv_review_url(movieNm, openDt):
@@ -194,7 +194,7 @@ def scraping_cgv_reviews(**kwargs):
                         break
 
                     cgv_reviews.append(
-                        {"id": id, "context": context, "review_date": date}
+                        {"id": id, "context": context, "date": date}
                     )
                 except Exception as e:
                     logging.info(f"리뷰 수집안됨. {e}")
@@ -254,7 +254,7 @@ def upload_to_gcs(df, movieNm):
 
         # 중복 제거
         combined_df.drop_duplicates(
-            subset=["id", "context", "review_date"], inplace=True
+            subset=["id", "context", "date"], inplace=True
         )
     else:
         combined_df = df

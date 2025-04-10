@@ -263,7 +263,7 @@ def upload_to_gcs(df, movieNm):
 
         # 중복 제거
         combined_df.drop_duplicates(
-            subset=["id", "context", "review_date"], inplace=True
+            subset=["id", "context"], inplace=True
         )
     else:
         combined_df = df
