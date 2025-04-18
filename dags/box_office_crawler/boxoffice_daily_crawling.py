@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime, timedelta
 
@@ -11,12 +12,15 @@ from google.cloud import storage
 
 load_dotenv()
 
-GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 BUCKET_NAME = Variable.get("BUCKET_NAME")
 DAILY_BOXOFFICE_FOLDER = Variable.get("DAILY_BOXOFFICE_FOLDER")
 BOXOFFICE_API_KEY = Variable.get("BOXOFFICE_API_KEY")
+sa_key_dict = Variable.get("GOOGLE_APPLICATION_CREDENTIALS", deserialize_json=True)
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
+with open("/tmp/gcp-sa-key.json", "w") as f:
+    json.dump(sa_key_dict, f)
+
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/gcp-sa-key.json"
 
 
 def get_date():
@@ -116,7 +120,7 @@ default_args = {
 }
 with DAG(
     dag_id="daily_box_office_crawling",
-    schedule_interval=timedelta(days=1),  # 매일 실행하기 위함
+    schedule_interval="0 21 * * *",  # 매일 21:00 실행
     catchup=False,
     default_args=default_args,
 ) as dag:

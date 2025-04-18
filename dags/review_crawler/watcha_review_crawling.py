@@ -1,4 +1,5 @@
 import io
+import json
 import logging
 import os
 import time
@@ -19,13 +20,16 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 load_dotenv()
 
-GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 BUCKET_NAME = Variable.get("BUCKET_NAME")
 MOVIE_REVIEW_FOLDER = Variable.get("MOVIE_REVIEW_FOLDER")
 DAILY_BOXOFFICE_FOLDER = Variable.get("DAILY_BOXOFFICE_FOLDER")
 DAILY_REGION_BOXOFFICE_FOLDER = Variable.get("DAILY_REGION_BOXOFFICE_FOLDER")
+sa_key_dict = Variable.get("GOOGLE_APPLICATION_CREDENTIALS", deserialize_json=True)
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
+with open("/tmp/gcp-sa-key.json", "w") as f:
+    json.dump(sa_key_dict, f)
+
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/gcp-sa-key.json"
 
 
 def get_date():
@@ -283,7 +287,7 @@ default_args = {
 }
 with DAG(
     dag_id="watcha_review_crawling",
-    schedule_interval=timedelta(days=1),
+    schedule_interval="0 22 * * *",  # 매일 22:00 실행
     catchup=False,
     default_args=default_args,
 ) as dag:

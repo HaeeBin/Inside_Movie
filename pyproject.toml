@@ -12,9 +12,12 @@ selenium = "^4.29.0"
 apache-airflow = "^2.10.5"
 pyspark = "^3.5.5"
 pandas = "^2.2.3"
-numpy = "^2.2.4"
 google-cloud-storage = "^3.1.0"
 python-dotenv = "^1.0.1"
+scikit-learn = "^1.6.1"
+keras-preprocessing = "^1.1.2"
+keras = "^3.9.2"
+numpy = "1.26.4"
 
 
 [tool.poetry.group.dev.dependencies]
