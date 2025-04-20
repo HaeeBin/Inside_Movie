@@ -1,13 +1,14 @@
+import io
 import json
-import os, io
-import pandas as pd
+import os
 from datetime import datetime, timedelta
-from airflow.operators.python import PythonOperator
-from airflow import DAG
 
+import pandas as pd
+from airflow import DAG
 from airflow.models import Variable
+from airflow.operators.python import PythonOperator
 from dotenv import load_dotenv
-from google.cloud import storage, bigquery
+from google.cloud import bigquery, storage
 
 load_dotenv()
 
@@ -36,7 +37,7 @@ def upload_merged_reviews_to_bigquery():
     platforms = ["watcha", "megabox", "cgv", "cine"]
 
     all_df = []
-    
+
     client = storage.Client()
     bucket = client.bucket(BUCKET_NAME)
 
@@ -48,35 +49,41 @@ def upload_merged_reviews_to_bigquery():
         for blob in blobs:
             if not blob.name.endswith(f"{target_date}_{platform}_reviews.csv"):
                 continue
-            
-            csv = blob.download_as_text(encoding='utf-8-sig')
+
+            csv = blob.download_as_text(encoding="utf-8-sig")
             df = pd.read_csv(io.StringIO(csv))
             df.columns = df.columns.str.lower()
-            df.rename(columns={"name":"id", "review_date":"date", "rating":"star"}, inplace=True)
+            df.rename(
+                columns={"name": "id", "review_date": "date", "rating": "star"},
+                inplace=True,
+            )
             df["platform"] = platform
-            
+
             filename = blob.name.split("/")[-1]
             movieNm = filename.replace(f"_{target_date}_{platform}_reviews.csv", "")
             movieNm = (
                 movieNm.replace("%20", " ")
-                       .replace("%5B", "[")
-                       .replace("%5D", "]")
-                       .replace("%2C", ",")
-                       .replace("%26", "&")
+                .replace("%5B", "[")
+                .replace("%5D", "]")
+                .replace("%2C", ",")
+                .replace("%26", "&")
             )
             df["movieNm"] = movieNm
-            
+
             all_df.append(df[["movieNm", "id", "context", "star", "date", "platform"]])
-    
+
     if all_df:
         combined = pd.concat(all_df, ignore_index=True).drop_duplicates()
         bq = bigquery.Client()
         bq.load_table_from_dataframe(
             combined,
             "movie_dashboard.review_data",
-            job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND", autodetect=True)
+            job_config=bigquery.LoadJobConfig(
+                write_disposition="WRITE_APPEND", autodetect=True
+            ),
         ).result()
-        
+
+
 def upload_cleaned_reviews_to_bigquery():
     """
     review_data 테이블에서 분석에 적합한 리뷰만 필터링 후
@@ -84,21 +91,26 @@ def upload_cleaned_reviews_to_bigquery():
     """
     bq = bigquery.Client()
     df = bq.query("SELECT * FROM `movie_dashboard.review_data`").to_dataframe()
-    
+
     df["context"] = df["context"].astype(str).str.strip()
     # null, 빈 문자열, 10글자 미만 걸러내기 => 의미없을 가능성
-    df = df[df["context"].notna() & (df["context"] != "") & (df["context"].str.len() >= 10)]
+    df = df[
+        df["context"].notna() & (df["context"] != "") & (df["context"].str.len() >= 10)
+    ]
     df["star"] = pd.to_numeric(df["star"], errors="coerce")
     df = df[(df["star"].isna()) | ((df["star"] >= 0) & (df["star"] <= 5))]
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    
+
     df.drop_duplicates(subset=["movieNm", "id", "context", "date"], inplace=True)
-    
+
     bq.load_table_from_dataframe(
         df,
         "movie_reviews.cleaned_reviews",
-        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND", autodetect=True)
+        job_config=bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND", autodetect=True
+        ),
     ).result()
+
 
 # dag 설정
 default_args = {
@@ -115,12 +127,12 @@ with DAG(
 
     upload_merged_reviews_to_bigquery = PythonOperator(
         task_id="upload_merged_reviews_to_bigquery",
-        python_callable=upload_merged_reviews_to_bigquery
+        python_callable=upload_merged_reviews_to_bigquery,
     )
 
     upload_cleaned_reviews_to_bigquery = PythonOperator(
         task_id="upload_cleaned_reviews_to_bigquery",
-        python_callable=upload_cleaned_reviews_to_bigquery
+        python_callable=upload_cleaned_reviews_to_bigquery,
     )
 
     upload_merged_reviews_to_bigquery >> upload_cleaned_reviews_to_bigquery

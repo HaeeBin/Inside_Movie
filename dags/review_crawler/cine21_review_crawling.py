@@ -172,9 +172,9 @@ def scraping_cine_review(**kwargs):
                     if review.select_one("div > div.star_area > span")
                     else None
                 )
-                name = review.select_one("div > div.comment_area > a > span")
+                name = review.select_one("div > div.comment_area > a > span").text
                 context = (
-                    review.select_one("div > div.comment_area > span")
+                    review.select_one("div > div.comment_area > span").text
                     if review.select_one("div > div.comment_area > span")
                     else None
                 )
@@ -185,8 +185,8 @@ def scraping_cine_review(**kwargs):
                             "who": "expert",
                             "name": name,
                             "context": context,
-                            "star": star,
-                            "review_date": None,
+                            "star": int(star),
+                            "date": None,
                         }
                     )
         except Exception as e:
@@ -272,8 +272,8 @@ def scraping_cine_review(**kwargs):
                                     "who": "netizen",
                                     "name": name,
                                     "context": context,
-                                    "star": star,
-                                    "review_date": date[0],
+                                    "star": int(star) / 2,
+                                    "date": date[0],
                                 }
                             )
                 except Exception as e:
@@ -316,9 +316,7 @@ def upload_to_gcs(df, movieNm):
         combined_df = pd.concat([existing_df, df], ignore_index=True)
 
         # 중복 제거
-        combined_df.drop_duplicates(
-            subset=["id", "context", "review_date"], inplace=True
-        )
+        combined_df.drop_duplicates(subset=["id", "context", "date"], inplace=True)
     else:
         combined_df = df
 
