@@ -27,7 +27,7 @@
 Inside_Movie/
 ├── .github/workflows/             
 ├── dags/                          
-    ├── box_office_crawler/        
+    ├── boxoffice_crawling_and_upload/        
     ├── review_crawler/            
     └── process_and_analysis/      
 ├── get_region_code.py             
@@ -43,7 +43,7 @@ GitHub Actions를 이용한 CI/CD 자동화 설정 디렉토리 <br>
 
 + `dags/` <br>
 Apache Airflow DAG 모음 디렉토리 <br>
-├─ `box_office_crawler/` : 일별/지역별 박스오피스 데이터 수집 DAG <br>
+├─ `box_office_crawler/` : 일별/지역별 박스오피스 데이터 수집 및 접처리 후 BigQuery 업로드 DAG <br>
 ├─ `review_crawler/` : CGV, Megabox, Watcha 등 리뷰 수집 DAG <br>
 └─ `process_and_analysis/` : 수집된 데이터 전처리 및 분석 DAG <br>
 
@@ -218,6 +218,3 @@ airflow dags trigger process_and_analysis
 - 🧠 **감정 분석 정확도 향상**
   - 현재 사용 중인 모델은 `sangrimlee/bert-base-multilingual-cased-nsmc`로, 네이버 영화 리뷰 데이터 기반의 BERT 모델입니다.  
   - 향후에는 **도메인 맞춤형 fine-tuning**, 또는 **모델 경량화 및 서빙 자동화**를 통해 운영 효율을 높일 수 있습니다.
-
-
-

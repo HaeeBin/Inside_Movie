@@ -287,7 +287,7 @@ default_args = {
 }
 with DAG(
     dag_id="watcha_review_crawling",
-    schedule_interval="0 22 * * *",  # 매일 22:00 실행
+    schedule_interval="0 20 * * *",  # 매일 20:00 실행
     catchup=False,
     default_args=default_args,
 ) as dag:

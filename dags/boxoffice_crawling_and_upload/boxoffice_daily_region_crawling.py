@@ -8,7 +8,7 @@ from airflow import DAG
 from airflow.models import Variable  # Airflow의 환경변수 불러오기 위함
 from airflow.operators.python import PythonOperator
 from dotenv import load_dotenv
-from google.cloud import storage
+from google.cloud import storage, bigquery
 
 load_dotenv()
 
@@ -164,8 +164,47 @@ def upload_to_gcs(**kwargs):
         blob.upload_from_string(csv_data, content_type="text/csv")
 
         print(f"{target_date} region file upload success")
-
-
+        
+def upload_to_bigquery(**kwargs):
+    """
+    DataFrame을 전처리 후 BigQuery에 업로드하는 함수입니다.
+    """
+    target_date = get_date()
+    
+    data = kwargs["ti"].xcom_pull(
+        task_ids="parse_daily_region_boxoffice_data", key="parse_region_boxoffice_data"
+    )
+    
+    df = pd.read_json(data)
+    df["boxoffice_date"] = pd.to_datetime(target_date, format="%Y%m%d")
+        
+    # 컬럼 타입 변환
+    cast_columns = {
+        "rank": "Int64",
+        "rankInten": "Int64",
+        "salesAmt": "Int64",
+        "salesAcc": "Int64",
+        "audiCnt": "Int64",
+        "audiAcc": "Int64",
+        "scrnCnt": "Int64",
+        "showCnt": "Int64",
+        "prdtYear": "Int64",
+        "showTm": "Int64",
+    }
+        
+    for col, dtype in cast_columns.items():
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    
+    # BigQuery 업로드
+    bq = bigquery.Client()
+    bq.load_table_from_dataframe(
+        df,
+        "movie_boxoffice.merged_daily_region_boxoffice",
+        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND", autodetect=True)
+    ).result()
+    
+    
 # dag 설정
 default_args = {
     "start_date": datetime(2025, 3, 20),
@@ -174,7 +213,7 @@ default_args = {
 }
 with DAG(
     dag_id="daily_region_box_office_crawling",
-    schedule_interval="0 21 * * *",  # 매일 21:00 실행
+    schedule_interval="30 18 * * *",  # 매일 18:30 실행
     catchup=False,
     default_args=default_args,
 ) as dag:
@@ -199,10 +238,17 @@ with DAG(
     upload_to_gcs = PythonOperator(
         task_id="upload_to_gcs", python_callable=upload_to_gcs, provide_context=True
     )
+    
+    upload_to_bigquery = PythonOperator(
+        task_id="upload_to_bigquery",
+        python_callable=upload_to_bigquery,
+        provide_context=True
+    )
 
     (
         load_region_codes_from_gcs
         >> request_region_api
         >> parse_daily_region_boxoffice_data
         >> upload_to_gcs
+        >> upload_to_bigquery
     )
