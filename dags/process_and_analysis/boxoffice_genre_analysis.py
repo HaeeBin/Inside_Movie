@@ -2,13 +2,11 @@ import json
 import os
 from datetime import datetime, timedelta
 
-import pandas as pd
-import requests
 from airflow import DAG
 from airflow.models import Variable  # Airflow의 환경변수 불러오기 위함
 from airflow.operators.python import PythonOperator
 from dotenv import load_dotenv
-from google.cloud import storage, bigquery
+from google.cloud import bigquery
 
 load_dotenv()
 
@@ -29,6 +27,7 @@ def get_date():
     """
     return (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
 
+
 def upload_genre_analysis_to_bigquery():
     """
     merged_boxoffice 테이블에서 어제 날짜의 장르 데이터를 분리하고,
@@ -36,29 +35,34 @@ def upload_genre_analysis_to_bigquery():
     """
     bq = bigquery.Client()
     yesterday = get_date()
-    
+
     query = f"""
         SELECT boxoffice_date, movieNm, genreNm, salesAmt, audiCnt, openDt
         FROM `movie_boxoffice.merged_daily_boxoffice`
         WHERE DATE(date) >= DATE("{yesterday}")
     """
     df = bq.query(query).to_dataframe()
-    
+
     df = df.dropna(subset=["genreNm"])
     df["genreNm"] = df["genreNm"].astype(str)
-    
+
     df = df.assign(genre=df["genreNm"].str.split(","))
     df = df.explode("genre")
     df["genre"] = df["genre"].str.strip()
-    
-    genre_df = df[["boxoffice_date", "movieNm", "genre", "salesAmt", "audiCnt", "openDt"]]
-    
+
+    genre_df = df[
+        ["boxoffice_date", "movieNm", "genre", "salesAmt", "audiCnt", "openDt"]
+    ]
+
     bq.load_table_from_dataframe(
         genre_df,
         "movie_boxoffice.analysis_genre",
-        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND", autodetect=True)
+        job_config=bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND", autodetect=True
+        ),
     ).result()
-    
+
+
 # dag 설정
 default_args = {
     "start_date": datetime(2025, 3, 28),
@@ -76,5 +80,5 @@ with DAG(
         task_id="upload_genre_analysis_to_bigquery",
         python_callable=upload_genre_analysis_to_bigquery,
     )
-    
+
     upload_genre_analysis_to_bigquery

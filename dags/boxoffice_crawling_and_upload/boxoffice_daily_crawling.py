@@ -8,7 +8,7 @@ from airflow import DAG
 from airflow.models import Variable  # Airflow의 환경변수 불러오기 위함
 from airflow.operators.python import PythonOperator
 from dotenv import load_dotenv
-from google.cloud import storage, bigquery
+from google.cloud import bigquery, storage
 
 load_dotenv()
 
@@ -117,14 +117,14 @@ def upload_to_bigquery(**kwargs):
     DataFrame을 전처리 후 BigQuery에 업로드하는 함수입니다.
     """
     target_date = get_date()
-    
+
     ti = kwargs["ti"]
     data = ti.xcom_pull(task_ids="request_daily_api", key="daily_box_office_data")
 
     df = parse_daily_boxoffice_data(data)
-    
+
     df["boxoffice_date"] = pd.to_datetime(target_date, format="%Y%m%d")
-        
+
     # 컬럼 타입 변환
     cast_columns = {
         "rank": "Int64",
@@ -144,17 +144,24 @@ def upload_to_bigquery(**kwargs):
         "showTm": "Int64",
         "openDt": "datetime64[ns]",
     }
-        
+
     for col, dtype in cast_columns.items():
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce") if "int" in dtype or "float" in dtype else pd.to_datetime(df[col], errors="coerce") 
-    
+            df[col] = (
+                pd.to_numeric(df[col], errors="coerce")
+                if "int" in dtype or "float" in dtype
+                else pd.to_datetime(df[col], errors="coerce")
+            )
+
     bq = bigquery.Client()
     bq.load_table_from_dataframe(
         df,
         "movie_boxoffice.merged_daily_boxoffice",
-        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND", autodetect=True)
+        job_config=bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND", autodetect=True
+        ),
     ).result()
+
 
 # dag 설정
 default_args = {
@@ -178,11 +185,11 @@ with DAG(
     upload_to_gcs = PythonOperator(
         task_id="upload_to_gcs", python_callable=upload_to_gcs, provide_context=True
     )
-    
+
     upload_to_bigquery = PythonOperator(
         task_id="upload_to_bigquery",
         python_callable=upload_to_bigquery,
-        provide_context=True
+        provide_context=True,
     )
 
     request_daily_api >> upload_to_gcs >> upload_to_bigquery
