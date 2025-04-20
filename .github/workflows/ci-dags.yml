@@ -54,8 +54,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-verion: '3.11'
+          python-version: '3.11'
 
+      # 1. 인증
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # 2. gcloud 설치 (인증 후)
       - name: Install gcloud CLI
         uses: google-github-actions/setup-gcloud@v1
         with:
@@ -63,6 +70,7 @@ jobs:
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
 
+      # 3. Dags GCS에 업로드
       - name: Upload DAGs to GCS
         run: |
           gsutil -m rsync -r ./dags gs://${{ secrets.GCS_BUCKET_NAME }}/dags

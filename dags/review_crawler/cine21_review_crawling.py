@@ -1,4 +1,5 @@
 import io
+import json
 import logging
 import os
 import time
@@ -19,13 +20,16 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 load_dotenv()
 
-GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 BUCKET_NAME = Variable.get("BUCKET_NAME")
 MOVIE_REVIEW_FOLDER = Variable.get("MOVIE_REVIEW_FOLDER")
 DAILY_BOXOFFICE_FOLDER = Variable.get("DAILY_BOXOFFICE_FOLDER")
 DAILY_REGION_BOXOFFICE_FOLDER = Variable.get("DAILY_REGION_BOXOFFICE_FOLDER")
+sa_key_dict = Variable.get("GOOGLE_APPLICATION_CREDENTIALS", deserialize_json=True)
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
+with open("/tmp/gcp-sa-key.json", "w") as f:
+    json.dump(sa_key_dict, f)
+
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/gcp-sa-key.json"
 
 
 def get_date():
@@ -76,22 +80,28 @@ def get_latest_review_datetime(movieNm):
     client = storage.Client()
     bucket = client.bucket(BUCKET_NAME)
 
-    gcs_file_path = f"{MOVIE_REVIEW_FOLDER}/cine_reviews/{movieNm}_cine_reviews.csv"
-    blob = bucket.blob(gcs_file_path)
+    prefix = f"{MOVIE_REVIEW_FOLDER}/cine_reviews/{movieNm}_"
+    blobs = bucket.list_blobs(prefix=prefix)
 
-    # 리뷰 수집된 파일이 없으면 모든 리뷰 수집하기 위해 None return
-    if not blob.exists():
-        return None
+    latest_datetime = None
 
-    csv_data = blob.download_as_text(encoding="utf-8-sig")
-    df = pd.read_csv(io.StringIO(csv_data))
+    for blob in blobs:
+        if not blob.name.endswith(".csv"):
+            continue
 
-    if "date" not in df.columns or df.empty:
-        return None
+        csv_data = blob.download_as_text(encoding="utf-8-sig")
+        df = pd.read_csv(io.StringIO(csv_data))
 
-    # 가장 최근 값 구하기
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    return df["date"].max()
+        if "review_date" not in df.columns or df.empty:
+            df["review_date"] = pd.to_datetime(df["review_date"], errors="coerce")
+            latest = df["review_date"].max()
+
+            if pd.notnull(latest) and (
+                latest_datetime is None or latest > latest_datetime
+            ):
+                latest_datetime = latest
+
+    return latest_datetime
 
 
 def get_cine_review_url(movieNm):
@@ -291,8 +301,12 @@ def upload_to_gcs(df, movieNm):
     client = storage.Client()
     bucket = client.bucket(BUCKET_NAME)
 
+    today = datetime.today().strftime("%Y%m%d")
+
     # gcs 파일 경로 설정
-    gcs_file_path = f"{MOVIE_REVIEW_FOLDER}/cine_reviews/{movieNm}_cine_reviews.csv"
+    gcs_file_path = (
+        f"{MOVIE_REVIEW_FOLDER}/cine_reviews/{movieNm}_{today}_cine_reviews.csv"
+    )
     blob = bucket.blob(gcs_file_path)
 
     # 기존 데이터가 있는 경우 다운로드하여 병합
@@ -323,7 +337,7 @@ default_args = {
 }
 with DAG(
     dag_id="cine_review_crawling",
-    schedule_interval=timedelta(days=1),
+    schedule_interval="0 19 * * *",  # 매일 19:00 실행
     catchup=False,
     default_args=default_args,
 ) as dag:
